@@ -81,7 +81,7 @@ SUBROUTINE f_ht_pwscf_drv(lib_comm,nim,npt,npl,nta,nbn,ndg,retval,infile)
   CALL set_command_line( nimage=nim, npool=npl, ntg=nta, &
       nband=nbn, ndiag=ndg )
   CALL mp_startup ( my_world_comm=lib_comm )
-  CALL environment_start ( 'PWSCF' )
+  CALL ht_environment_start ( 'PWSCF' )
   !
   CALL read_input_file ('PW', infile )
   !
@@ -93,3 +93,80 @@ SUBROUTINE f_ht_pwscf_drv(lib_comm,nim,npt,npl,nta,nbn,ndg,retval,infile)
   !
 END SUBROUTINE f_ht_pwscf_drv
 
+SUBROUTINE ht_environment_start( code )
+
+  USE kinds, ONLY: DP
+  USE io_files, ONLY: crash_file, nd_nmbr
+  USE io_global, ONLY: stdout, meta_ionode
+  USE mp_world,  ONLY: nproc
+  USE mp_images, ONLY: me_image, my_image_id, root_image, nimage, nproc_image
+  USE mp_pools,  ONLY: npool
+  USE mp_bands,  ONLY: ntask_groups, nproc_bgrp, nbgrp
+  USE global_version, ONLY: version_number, svn_revision
+  USE environment
+
+    CHARACTER(LEN=*), INTENT(IN) :: code
+    LOGICAL           :: exst, debug = .false.
+    CHARACTER(LEN=80) :: code_version, uname
+    CHARACTER(LEN=6), EXTERNAL :: int_to_char
+    INTEGER :: ios, crashunit
+    INTEGER, EXTERNAL :: find_free_unit
+
+    ! ... The Intel compiler allocates a lot of stack space
+    ! ... Stack limit is often small, thus causing SIGSEGV and crash
+    ! ... One may use "ulimit -s unlimited" but it doesn't always work
+    ! ... The following call does the same and always works
+    !
+#if defined(__INTEL_COMPILER)
+    CALL remove_stack_limit ( )
+#endif
+    ! ... use ".FALSE." to disable all clocks except the total cpu time clock
+    ! ... use ".TRUE."  to enable clocks
+
+    CALL init_clocks( .TRUE. )
+    CALL start_clock( TRIM(code) )
+
+    code_version = TRIM (code) // " v." // TRIM (version_number)
+    IF ( TRIM (svn_revision) /= "unknown" ) code_version = &
+         TRIM (code_version) // " (svn rev. " // TRIM (svn_revision) // ")"
+
+    ! ... for compatibility with PWSCF
+
+#if defined(__MPI)
+    nd_nmbr = TRIM ( int_to_char( me_image+1 ))
+#else
+    nd_nmbr = ' '
+#endif
+
+    IF( meta_ionode ) THEN
+
+       ! ...  search for file CRASH and delete it
+
+       INQUIRE( FILE=TRIM(crash_file), EXIST=exst )
+       IF( exst ) THEN
+          crashunit = find_free_unit()
+          OPEN( UNIT=crashunit, FILE=TRIM(crash_file), STATUS='OLD',IOSTAT=ios )
+          IF (ios==0) THEN
+             CLOSE( UNIT=crashunit, STATUS='DELETE', IOSTAT=ios )
+          ELSE
+             WRITE(stdout,'(5x,"Remark: CRASH file could not be deleted")')
+          END IF
+       END IF
+    END IF
+
+    ! ... one processor per image (other than meta_ionode)
+    ! ... or, for debugging purposes, all processors,
+    ! ... open their own standard output file
+
+    uname = 'out.' // trim(int_to_char( my_image_id )) // '_' // trim(int_to_char( me_image))
+    OPEN ( unit = stdout, file = TRIM(uname),status='unknown')
+    !
+    CALL opening_message( code_version )
+    CALL compilation_info ( )
+#if defined(__MPI)
+    CALL parallel_info ( )
+#else
+    CALL serial_info()
+#endif
+
+END SUBROUTINE
