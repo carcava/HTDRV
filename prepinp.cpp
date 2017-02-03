@@ -1,7 +1,13 @@
 #include<stdio.h>
 #include<stdlib.h>
 #include<list>
+
+#if defined(_WIN32)
+#include <direct.h>
+#else
 #include <unistd.h>
+#endif
+
 #include <string.h>
 #include "comm.h"
 
@@ -403,3 +409,11 @@ int main(int argc, char ** argv) {
 
 	return 0;
 }
+
+
+#if defined(__STANDALONE)
+void ht_pw_drv(int lib_comm, int nimage, int npot, int npool, int ntaskgroup,
+	int nband, int ndiag, int *exit_status, char *input_file) {
+	fprintf(stdout, "DO SOME USEFUL WORK WITH: %s\n", input_file);
+}
+#endif
