@@ -324,7 +324,7 @@ int main(int argc, char ** argv) {
 		role = HT_ROLE_SLAVE;
 
 	MPI_Comm intra_comm;
-	MPI_Comm_split( MPI_COMM_WORLD, role, World.MyPe(), &intra_comm);
+	MPI_Comm_split( MPI_COMM_WORLD, role+World.MyPe(), World.MyPe(), &intra_comm);
 	CommGroup MyGroup( intra_comm );
 	int my_fcomm = MPI_Comm_c2f( intra_comm );
 
