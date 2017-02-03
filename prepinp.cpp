@@ -2,6 +2,7 @@
 #include<stdlib.h>
 #include<list>
 #include <unistd.h>
+#include <string.h>
 #include "comm.h"
 
 #ifdef __cplusplus
@@ -15,6 +16,7 @@ void ht_pw_drv(int lib_comm, int nimage, int npot, int npool, int ntaskgroup,
 
 int c_mkdir_safe( const char * dirname );
 
+double cclock_();
 
 #ifdef __cplusplus
 }
@@ -25,9 +27,6 @@ const int NOXYGEN=31;
 const int NHYDROGEN=62;
 const int SHUTDOWN_MESSAGE=-1;
 const int SHUTDOWN_MESSAGE_SIZE=1;
-
-#define HT_ROLE_MASTER 1
-#define HT_ROLE_SLAVE  2
 
 const char CONTROL_NAMELIST[] = 
 "&control\n"
@@ -204,7 +203,7 @@ void PrintSingleInput( const Pos & p, const Cel & c,  MPI_Comm this_slave_group)
 }
 
 
-void SlaveTask( list<Pos> & positions, list<Cel> & cells, const CommGroup & Group, const CommGroup & World ) {
+void SlaveTask( list<Pos> & positions, list<Cel> & cells, const CommGroup & Group, const CommGroup & World, int * group_leader, int number_of_slave_groups ) {
 
 	bool work_to_do = true;
 	int message = 0;
@@ -212,11 +211,19 @@ void SlaveTask( list<Pos> & positions, list<Cel> & cells, const CommGroup & Grou
 
 	while( work_to_do ) {
 
-		comm_say_i_am_ready( World, &message, message_size );
+		if( Group.IamRoot() ) {
+			comm_say_i_am_ready( World, &message, message_size );
+		}
+		MPI_Bcast( &message, message_size, MPI_INT, Group.RootPe(), Group.Comm() );
+		
 		if( message > 0 ) {
 			// send back data to master
 		}
-		comm_recv( &message, message_size, World.RootPe(), World);
+		if( Group.IamRoot() ) {
+			comm_recv( &message, message_size, World.RootPe(), World);
+		}
+		MPI_Bcast( &message, message_size, MPI_INT, Group.RootPe(), Group.Comm() );
+
 		if( message > -1 ) {
 			list<Pos>::const_iterator i = positions.begin();
 			list<Cel>::const_iterator j = cells.begin();
@@ -237,7 +244,7 @@ void SlaveTask( list<Pos> & positions, list<Cel> & cells, const CommGroup & Grou
 }
 
 
-void MasterTask( list<Pos> & positions, list<Cel> & cells, const CommGroup & Group, const CommGroup & World ) {
+void MasterTask( list<Pos> & positions, list<Cel> & cells, const CommGroup & Group, const CommGroup & World, int * group_leader, int number_of_slave_groups ) {
 	list<Pos>::const_iterator i = positions.begin();
 	list<Cel>::const_iterator j = cells.begin();
 	while( (i != positions.end() ) && ( j != cells.end() ) ) {
@@ -260,10 +267,10 @@ void MasterTask( list<Pos> & positions, list<Cel> & cells, const CommGroup & Gro
 		i++;
 		j++;
 	}
-	for( int ip = 1; ip < World.NumPe()	; ip++ ) {
+	for( int ip = 0; ip < number_of_slave_groups; ip++ ) {
 		// send shut-down message
 		fprintf(stdout, "MASTER: sending to SLAVE %d shutdown signal\n", ip);
-		comm_send( &SHUTDOWN_MESSAGE, SHUTDOWN_MESSAGE_SIZE, ip, ip, World);
+		comm_send( &SHUTDOWN_MESSAGE, SHUTDOWN_MESSAGE_SIZE, group_leader[ ip ], ip, World);
 		//
 	}
 }
@@ -306,28 +313,70 @@ int main(int argc, char ** argv) {
 
         CommGroup World( MPI_COMM_WORLD );
 
-	if( argc != 2 ) {
-		fprintf(stderr,"wrong number of argument\n");
-		exit(1);
-	}
-	int nstep = atoi( argv[1] );
+        int j = 0;
+	int nstep = 0;
+	int group_size = 1;
+        while ( ++j < argc ) {
+                if (!strcmp(argv[j],"-nsys")) {
+			// number of systems to be processed
+			nstep = atoi( argv[++j] );
+                } else if (!strcmp(argv[j],"-nproc")) {
+			// number of systems to be processed
+			group_size = atoi( argv[++j] );
+                }
+                else {
+			fprintf(stderr,"wrong argument %s\n",argv[j]);
+			exit(1);
+                }
+        }
+
 	if( nstep <= 0 ) {
-		fprintf(stderr,"wrong argument\n");
+		fprintf(stderr,"wrong number of systems\n");
 		exit(1);
 	}
 
 	int role;
 
-	if ( World.IamRoot() )
-		role = HT_ROLE_MASTER;
-	else
-		role = HT_ROLE_SLAVE;
+	if ( World.IamRoot() ) {
+		role = 0;
+	} else {
+		role = ( World.MyPe() - 1 ) / group_size + 1;
+	}
 
 	MPI_Comm intra_comm;
-	MPI_Comm_split( MPI_COMM_WORLD, role+World.MyPe(), World.MyPe(), &intra_comm);
+	MPI_Comm_split( MPI_COMM_WORLD, role, World.MyPe(), &intra_comm);
 	CommGroup MyGroup( intra_comm );
 	int my_fcomm = MPI_Comm_c2f( intra_comm );
 
+	int number_of_slave_groups = ( World.NumPe() - 2 ) / group_size + 1;
+	int * group_leader = new int[ number_of_slave_groups ];
+	int * group_leader_mask = new int[ World.NumPe() ];
+
+	if( World.IamRoot() )
+		fprintf(stdout,"Number of slave groups = %d\n", number_of_slave_groups);
+
+	for( int i = 0; i < World.NumPe(); i++ ) {
+		group_leader_mask[ i ] = 0;
+	}
+
+	if( MyGroup.IamRoot() && !World.IamRoot() ) {
+		group_leader_mask[ World.MyPe() ] = 1;
+	}
+
+	MPI_Allreduce(MPI_IN_PLACE, group_leader_mask, World.NumPe(), MPI_INT, MPI_SUM, World.Comm());
+	int ind_leader = 0;
+	for( int i = 0; i < World.NumPe(); i++ ) {
+		if( group_leader_mask[ i ] ) 
+			group_leader[ ind_leader++ ] = i;
+	}
+
+	if( World.IamRoot() ) {
+		for( int i = 0; i < number_of_slave_groups; i++ ) {
+			fprintf(stdout,"Group: %d, leader: %d\n", i, group_leader[i] );
+		}
+	}
+
+	double time_begin = cclock_();
 
 	list<Pos> positions;
 	list<Cel> cells;
@@ -336,10 +385,19 @@ int main(int argc, char ** argv) {
 	ReadCels(cells,nstep);
 
 	if( World.IamRoot() ) {
-		MasterTask( positions, cells, MyGroup, World );
+		MasterTask( positions, cells, MyGroup, World, group_leader, number_of_slave_groups );
 	} else {
-		SlaveTask( positions, cells, MyGroup, World );
+		SlaveTask( positions, cells, MyGroup, World, group_leader, number_of_slave_groups );
 	}
+
+	double time_end = cclock_();
+
+	if( World.IamRoot() ) {
+		fprintf( stdout, "WALLTIME: %lf seconds", time_end - time_begin);
+	}
+
+	delete [] group_leader;
+	delete [] group_leader_mask;
 
 	comm_end();
 
