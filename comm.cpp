@@ -1,5 +1,54 @@
 #include "comm.h"
+#include "stdio.h"
 
+
+
+MasterSlave::MasterSlave(CommGroup parent_comm, int group_max_size) {
+	this->group_max_size = group_max_size;
+	this->parent = parent_comm;
+
+	int role;
+	if (this->parent.IamRoot()) {
+		role = 0;
+	}
+	else {
+		role = (this->parent.MyPe() - 1) / this->group_max_size + 1;
+	}
+
+	MPI_Comm intra_comm;
+	MPI_Comm_split( this->parent.Comm(), role, this->parent.MyPe(), &intra_comm );
+	CommGroup _tmp( intra_comm );
+	this->slaves = _tmp;
+
+	this->number_of_slave_groups = (this->parent.NumPe() - 2) / this->group_max_size + 1;
+	this->group_leader = new int[ this->number_of_slave_groups ];
+	int * group_leader_mask = new int[ this->parent.NumPe() ];
+
+	if (this->parent.IamRoot())
+		fprintf(stdout, "Number of slave groups = %d\n", this->number_of_slave_groups);
+
+	for (int i = 0; i < this->parent.NumPe(); i++) {
+		group_leader_mask[i] = 0;
+	}
+
+	if (this->slaves.IamRoot() && !this->parent.IamRoot()) {
+		group_leader_mask[this->parent.MyPe()] = 1;
+	}
+
+	MPI_Allreduce(MPI_IN_PLACE, group_leader_mask, this->parent.NumPe(), MPI_INT, MPI_SUM, this->parent.Comm());
+	int ind_leader = 0;
+	for (int i = 0; i < this->parent.NumPe(); i++) {
+		if (group_leader_mask[i])
+			this->group_leader[ind_leader++] = i;
+	}
+
+	if (this->parent.IamRoot()) {
+		for (int i = 0; i < this->number_of_slave_groups; i++) {
+			fprintf(stdout, "Group: %d, leader: %d\n", i, this->group_leader[i]);
+		}
+	}
+	delete[] group_leader_mask;
+}
 
 void comm_bcast( int * val, int nval, const CommGroup & G ){
 #ifdef __USE_MPI

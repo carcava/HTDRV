@@ -164,35 +164,41 @@ char * MyGetPWD() {
 
 
 
-void PrintSingleInput( const Pos & p, const Cel & c,  MPI_Comm this_slave_group) {
+void PrintSingleInput( const Pos & p, const Cel & c, const CommGroup * Group) {
 	char filename[80];
 	char dirname[80];
-	char currpath[1024];
+
 	if( p.StepID() != c.StepID() ) {
 		fprintf( stderr, "WARNING stepid do not match %d %d\n", p.StepID(), c.StepID() );
 		return;
 	}
 	sprintf( filename, "h2o.pw.%d", p.StepID() );
 	sprintf( dirname, "RUN%d", p.StepID() );
-      	c_mkdir_safe( dirname ); 
+
+	if( Group->IamRoot())
+		c_mkdir_safe( dirname );
+	Group->Sync();
 
 	MyChangeDir( dirname );	
 
-	FILE * fp = fopen(filename, "w");
-	if( !fp ) {
-		fprintf(stderr,"ERROR opening file %s\n", filename );
-		exit(1);
+	if (Group->IamRoot()) {
+		FILE * fp = fopen(filename, "w");
+		if (!fp) {
+			fprintf(stderr, "ERROR opening file %s\n", filename);
+			exit(1);
+		}
+		fprintf(fp, "%s", CONTROL_NAMELIST);
+		fprintf(fp, "%s", SYSTEM_NAMELIST);
+		fprintf(fp, "%s", ELECTRONS_NAMELIST);
+		fprintf(fp, "%s", ATOMIC_SPECIES);
+		fprintf(fp, "%s", K_POINTS);
+		fprintf(fp, "%s", CELL_PARAMETERS);
+		c.PrintOut(fp);
+		fprintf(fp, "%s", ATOMIC_POSITIONS);
+		p.PrintOut(fp);
+		fclose(fp);
 	}
-	fprintf(fp,"%s",CONTROL_NAMELIST);
-	fprintf(fp,"%s",SYSTEM_NAMELIST);
-	fprintf(fp,"%s",ELECTRONS_NAMELIST);
-	fprintf(fp,"%s",ATOMIC_SPECIES);
-	fprintf(fp,"%s",K_POINTS);
-	fprintf(fp,"%s",CELL_PARAMETERS);
-	c.PrintOut(fp);
-	fprintf(fp,"%s",ATOMIC_POSITIONS);
-	p.PrintOut(fp);
-	fclose(fp);
+	Group->Sync();
 
         int nimage = 1;
         int npots = 1;
@@ -202,14 +208,14 @@ void PrintSingleInput( const Pos & p, const Cel & c,  MPI_Comm this_slave_group)
         int ndiag = 1;
         int retval = 0;
 
-        ht_pw_drv( this_slave_group, nimage, npots, npool, ntg, nband, ndiag, &retval, filename);
+        ht_pw_drv( Group->FortranComm(), nimage, npots, npool, ntg, nband, ndiag, &retval, filename);
 
 	MyChangeDir( "../" );	
 	
 }
 
 
-void SlaveTask( list<Pos> & positions, list<Cel> & cells, const CommGroup & Group, const CommGroup & World, int * group_leader, int number_of_slave_groups ) {
+void SlaveTask( list<Pos> & positions, list<Cel> & cells, const MasterSlave & MS) {
 
 	bool work_to_do = true;
 	int message = 0;
@@ -217,26 +223,26 @@ void SlaveTask( list<Pos> & positions, list<Cel> & cells, const CommGroup & Grou
 
 	while( work_to_do ) {
 
-		if( Group.IamRoot() ) {
-			comm_say_i_am_ready( World, &message, message_size );
+		if( MS.IamSlaveRoot() ) {
+			comm_say_i_am_ready( *MS.World(), &message, message_size );
 		}
-		MPI_Bcast( &message, message_size, MPI_INT, Group.RootPe(), Group.Comm() );
+		MPI_Bcast( &message, message_size, MPI_INT, MS.SlaveRootPe(), MS.SlaveComm() );
 		
 		if( message > 0 ) {
 			// send back data to master
 		}
-		if( Group.IamRoot() ) {
-			comm_recv( &message, message_size, World.RootPe(), World);
+		if(MS.IamSlaveRoot() ) {
+			comm_recv( &message, message_size, MS.SlaveRootPe(), *MS.World() );
 		}
-		MPI_Bcast( &message, message_size, MPI_INT, Group.RootPe(), Group.Comm() );
+		MPI_Bcast( &message, message_size, MPI_INT, MS.SlaveRootPe(), MS.SlaveComm() );
 
 		if( message > -1 ) {
 			list<Pos>::const_iterator i = positions.begin();
 			list<Cel>::const_iterator j = cells.begin();
 			while( (i != positions.end() ) && ( j != cells.end() ) ) {
 				if( i->StepID() == message ) {
-					fprintf(stdout,"Slave %d: processing stepid = %d\n", World.MyPe(), i->StepID() );
-					PrintSingleInput( *i, *j, Group.Comm() );
+					fprintf(stdout,"Slave %d: processing stepid = %d\n", MS.MyPe(), i->StepID() );
+					PrintSingleInput( *i, *j, MS.Slaves() );
 				}
 				i++;
 				j++;
@@ -246,37 +252,37 @@ void SlaveTask( list<Pos> & positions, list<Cel> & cells, const CommGroup & Grou
 		}
 	}
 
-	fprintf(stdout, "SLAVE %d: shutdown\n", World.MyPe());
+	fprintf(stdout, "SLAVE %d: shutdown\n", MS.MyPe());
 }
 
 
-void MasterTask( list<Pos> & positions, list<Cel> & cells, const CommGroup & Group, const CommGroup & World, int * group_leader, int number_of_slave_groups ) {
+void MasterTask( list<Pos> & positions, list<Cel> & cells, const MasterSlave & MS ) {
 	list<Pos>::const_iterator i = positions.begin();
 	list<Cel>::const_iterator j = cells.begin();
 	while( (i != positions.end() ) && ( j != cells.end() ) ) {
 		fprintf(stdout,"stepid = %d %d\n", i->StepID(), j->StepID() );
-		if( World.NumPe() < 2 ) {
-			PrintSingleInput( *i, *j, Group.Comm() );
+		if(MS.World()->NumPe() < 2 ) {
+			PrintSingleInput( *i, *j, MS.Slaves());
 		} else {
 			int message = 0;
 			int message_size = 1;
-			int slave_id = comm_get_ready_slave(World, &message, message_size );
+			int slave_id = comm_get_ready_slave(*MS.World(), &message, message_size );
 			if( message > 0 ) {
 				// post-process slave work ... if any
 			}
 			// send work to do
 			message = i->StepID();
 			fprintf(stdout, "MASTER: assigning to SLAVE %d Task %d\n", slave_id, message );
-			comm_send( &message, message_size, slave_id, slave_id, World);
+			comm_send( &message, message_size, slave_id, slave_id, *MS.World());
 		}
 
 		i++;
 		j++;
 	}
-	for( int ip = 0; ip < number_of_slave_groups; ip++ ) {
+	for( int ip = 0; ip < MS.NumberOfSlaveGroups(); ip++ ) {
 		// send shut-down message
 		fprintf(stdout, "MASTER: sending to SLAVE %d shutdown signal\n", ip);
-		comm_send( &SHUTDOWN_MESSAGE, SHUTDOWN_MESSAGE_SIZE, group_leader[ ip ], ip, World);
+		comm_send( &SHUTDOWN_MESSAGE, SHUTDOWN_MESSAGE_SIZE, MS.GroupLeader(ip), ip, *MS.World());
 		//
 	}
 }
@@ -341,46 +347,7 @@ int main(int argc, char ** argv) {
 		exit(1);
 	}
 
-	int role;
-
-	if ( World.IamRoot() ) {
-		role = 0;
-	} else {
-		role = ( World.MyPe() - 1 ) / group_size + 1;
-	}
-
-	MPI_Comm intra_comm;
-	MPI_Comm_split( MPI_COMM_WORLD, role, World.MyPe(), &intra_comm);
-	CommGroup MyGroup( intra_comm );
-	int my_fcomm = MPI_Comm_c2f( intra_comm );
-
-	int number_of_slave_groups = ( World.NumPe() - 2 ) / group_size + 1;
-	int * group_leader = new int[ number_of_slave_groups ];
-	int * group_leader_mask = new int[ World.NumPe() ];
-
-	if( World.IamRoot() )
-		fprintf(stdout,"Number of slave groups = %d\n", number_of_slave_groups);
-
-	for( int i = 0; i < World.NumPe(); i++ ) {
-		group_leader_mask[ i ] = 0;
-	}
-
-	if( MyGroup.IamRoot() && !World.IamRoot() ) {
-		group_leader_mask[ World.MyPe() ] = 1;
-	}
-
-	MPI_Allreduce(MPI_IN_PLACE, group_leader_mask, World.NumPe(), MPI_INT, MPI_SUM, World.Comm());
-	int ind_leader = 0;
-	for( int i = 0; i < World.NumPe(); i++ ) {
-		if( group_leader_mask[ i ] ) 
-			group_leader[ ind_leader++ ] = i;
-	}
-
-	if( World.IamRoot() ) {
-		for( int i = 0; i < number_of_slave_groups; i++ ) {
-			fprintf(stdout,"Group: %d, leader: %d\n", i, group_leader[i] );
-		}
-	}
+	MasterSlave MS(World, group_size);
 
 	double time_begin = cclock_();
 
@@ -391,9 +358,9 @@ int main(int argc, char ** argv) {
 	ReadCels(cells,nstep);
 
 	if( World.IamRoot() ) {
-		MasterTask( positions, cells, MyGroup, World, group_leader, number_of_slave_groups );
+		MasterTask( positions, cells, MS );
 	} else {
-		SlaveTask( positions, cells, MyGroup, World, group_leader, number_of_slave_groups );
+		SlaveTask( positions, cells, MS );
 	}
 
 	double time_end = cclock_();
@@ -401,9 +368,6 @@ int main(int argc, char ** argv) {
 	if( World.IamRoot() ) {
 		fprintf( stdout, "WALLTIME: %lf seconds", time_end - time_begin);
 	}
-
-	delete [] group_leader;
-	delete [] group_leader_mask;
 
 	comm_end();
 

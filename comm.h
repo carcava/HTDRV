@@ -6,6 +6,7 @@
 #else
 typedef int MPI_Comm;
 const int MPI_COMM_WORLD=0;
+const int MPI_COMM_NULL = 0;
 #endif
 
 #ifdef __USE_MPI
@@ -24,6 +25,13 @@ class CommGroup {
 	int root_pe;
 	bool I_am_root;
 public:
+	CommGroup() {
+		comm = MPI_COMM_NULL;
+		num_pe = 1;
+		my_pe = 0;
+		root_pe = 0;
+		I_am_root = true;
+	}
 	CommGroup( MPI_Comm comm ) {
 		this->comm = comm;
 		num_pe = 1;
@@ -53,7 +61,62 @@ public:
 	bool IamRoot() const {
 		return I_am_root;
 	}
+	void Sync() const {
+#ifdef __USE_MPI
+		MPI_Barrier(comm);
+#endif
+	}
+	int FortranComm() const {
+		return MPI_Comm_c2f(comm);
+	}
 };
+
+
+class MasterSlave {
+	CommGroup parent;
+	CommGroup slaves;
+	int group_max_size;
+	int number_of_slave_groups;
+	int * group_leader;
+public:
+	MasterSlave() {
+		number_of_slave_groups = 0;
+		group_leader = 0;
+	}
+	MasterSlave(CommGroup parent_comm, int group_max_size); 
+	~MasterSlave() {
+		if (group_leader) {
+			delete[] group_leader;
+		}
+		group_leader = 0;
+		number_of_slave_groups = 0;
+	}
+	bool IamSlaveRoot() const {
+		return slaves.IamRoot();
+	}
+	int SlaveRootPe() const {
+		return slaves.RootPe();
+	}
+	MPI_Comm SlaveComm() const {
+		return slaves.Comm();
+	}
+	const CommGroup * World() const {
+		return &parent;
+	}
+	const CommGroup * Slaves() const {
+		return &slaves;
+	}
+	int NumberOfSlaveGroups() const {
+		return number_of_slave_groups;
+	}
+	int GroupLeader(int ind) const {
+		return group_leader[ind];
+	}
+	int MyPe() const {
+		return parent.MyPe();
+	}
+};
+
 
 inline void comm_begin( int * argc, char *** argv ) {
 #ifdef __USE_MPI
@@ -76,6 +139,8 @@ inline int comm_rank( ) {
 #endif
 	return MyPe;
 }
+
+
 
 
 inline void comm_end() {
