@@ -31,8 +31,7 @@ double cclock_();
 
 const int NOXYGEN=31;
 const int NHYDROGEN=62;
-const int SHUTDOWN_MESSAGE=-1;
-const int SHUTDOWN_MESSAGE_SIZE=1;
+
 
 const char CONTROL_NAMELIST[] = 
 "&control\n"
@@ -223,20 +222,16 @@ void SlaveTask( list<Pos> & positions, list<Cel> & cells, const MasterSlave & MS
 
 	while( work_to_do ) {
 
-		if( MS.IamSlaveRoot() ) {
-			comm_say_i_am_ready( *MS.World(), &message, message_size );
-		}
-		MPI_Bcast( &message, message_size, MPI_INT, MS.SlaveRootPe(), MS.SlaveComm() );
+		MS.SayWeAreReady(&message, message_size);
 		
 		if( message > 0 ) {
 			// send back data to master
 		}
-		if(MS.IamSlaveRoot() ) {
-			comm_recv( &message, message_size, MS.SlaveRootPe(), *MS.World() );
-		}
-		MPI_Bcast( &message, message_size, MPI_INT, MS.SlaveRootPe(), MS.SlaveComm() );
+
+		MS.GetWorkFromMaster(&message, message_size);
 
 		if( message > -1 ) {
+			// DO WORK
 			list<Pos>::const_iterator i = positions.begin();
 			list<Cel>::const_iterator j = cells.begin();
 			while( (i != positions.end() ) && ( j != cells.end() ) ) {
@@ -266,25 +261,20 @@ void MasterTask( list<Pos> & positions, list<Cel> & cells, const MasterSlave & M
 		} else {
 			int message = 0;
 			int message_size = 1;
-			int slave_id = comm_get_ready_slave(*MS.World(), &message, message_size );
+			int slave_id = MS.GetReadySlave( &message, message_size );
 			if( message > 0 ) {
 				// post-process slave work ... if any
 			}
 			// send work to do
 			message = i->StepID();
 			fprintf(stdout, "MASTER: assigning to SLAVE %d Task %d\n", slave_id, message );
-			comm_send( &message, message_size, slave_id, slave_id, *MS.World());
+			MS.SendWorkToSlave( slave_id, &message, message_size );
 		}
 
 		i++;
 		j++;
 	}
-	for( int ip = 0; ip < MS.NumberOfSlaveGroups(); ip++ ) {
-		// send shut-down message
-		fprintf(stdout, "MASTER: sending to SLAVE %d shutdown signal\n", ip);
-		comm_send( &SHUTDOWN_MESSAGE, SHUTDOWN_MESSAGE_SIZE, MS.GroupLeader(ip), ip, *MS.World());
-		//
-	}
+	MS.ShutDownSlaves();
 }
 
 void ReadPositions( list<Pos> & positions, int nstep ) {

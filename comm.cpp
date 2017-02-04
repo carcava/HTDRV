@@ -111,3 +111,57 @@ int comm_say_i_am_ready( const CommGroup & G, int * message, int n ) {
 	comm_send( message, n, G.RootPe(), G.MyPe(), G );
 	return G.MyPe();
 }
+
+
+int MasterSlave::SayIamReady(int * message, int n) const {
+#ifdef __USE_MPI
+	MPI_Send((const void *)message, n, MPI_INT, parent.RootPe(), parent.MyPe(), parent.Comm());
+#endif
+	return parent.MyPe();
+}
+
+int MasterSlave::BcastToOtherSlaves(int * message, int n) const {
+	int ierr = 0;
+#ifdef __USE_MPI
+	ierr = MPI_Bcast( message, n, MPI_INT, this->SlaveRootPe(), this->SlaveComm());
+#endif
+	return ierr;
+}
+
+int MasterSlave::SayWeAreReady(int * message, int n)const {
+	if (this->IamSlaveRoot()) {
+		this->SayIamReady( message, n);
+	}
+	return this->BcastToOtherSlaves( message, n);
+}
+
+int MasterSlave::GetWorkFromMaster(int * message, int n)const {
+	int ierr = 0;
+	if (this->IamSlaveRoot()) {
+		comm_recv(message, n, this->SlaveRootPe(), this->parent);
+	}
+#ifdef __USE_MPI
+	ierr=MPI_Bcast(message, n, MPI_INT, this->SlaveRootPe(), this->SlaveComm());
+#endif
+	return ierr;
+}
+
+int MasterSlave::ShutDownSlaves() const {
+	for (int ip = 0; ip < this->NumberOfSlaveGroups(); ip++) {
+		// send shut-down message
+		fprintf(stdout, "MASTER: sending to SLAVE %d shutdown signal\n", ip);
+		comm_send(&SHUTDOWN_MESSAGE, SHUTDOWN_MESSAGE_SIZE, this->GroupLeader(ip), ip, parent );
+		//
+	}
+	return 0;
+}
+
+int MasterSlave::GetReadySlave(int * message, int n)const {
+	int slave_id = comm_get_ready_slave(this->parent, message, n);
+	return slave_id;
+}
+
+int MasterSlave::SendWorkToSlave(int slave_id, int * message, int n)const {
+	comm_send( message, n, slave_id, slave_id, this->parent );
+	return 0;
+}

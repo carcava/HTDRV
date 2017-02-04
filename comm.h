@@ -18,6 +18,9 @@ const bool Parallel = false;
 #define ROOT_PE 0
 #define NDIGIT_IN_RANK 6
 
+const int SHUTDOWN_MESSAGE = -1;
+const int SHUTDOWN_MESSAGE_SIZE = 1;
+
 class CommGroup {
 	MPI_Comm comm;
 	int num_pe;
@@ -115,6 +118,13 @@ public:
 	int MyPe() const {
 		return parent.MyPe();
 	}
+	int SayIamReady(int * message, int n) const;
+	int BcastToOtherSlaves(int * message, int n) const;
+	int SayWeAreReady(int * message, int n)const;
+	int GetWorkFromMaster(int * message, int n)const;
+	int ShutDownSlaves() const;
+	int GetReadySlave(int * message, int n)const;
+	int SendWorkToSlave(int slave_id, int * message, int n )const;
 };
 
 
