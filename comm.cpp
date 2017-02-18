@@ -16,7 +16,11 @@ MasterSlave::MasterSlave(CommGroup parent_comm, int group_max_size) {
 	}
 
 	MPI_Comm intra_comm;
+#ifdef __USE_MPI
 	MPI_Comm_split( this->parent.Comm(), role, this->parent.MyPe(), &intra_comm );
+#else
+	intra_comm = 0;
+#endif
 	CommGroup _tmp( intra_comm );
 	this->slaves = _tmp;
 
@@ -34,8 +38,9 @@ MasterSlave::MasterSlave(CommGroup parent_comm, int group_max_size) {
 	if (this->slaves.IamRoot() && !this->parent.IamRoot()) {
 		group_leader_mask[this->parent.MyPe()] = 1;
 	}
-
+#ifdef __USE_MPI
 	MPI_Allreduce(MPI_IN_PLACE, group_leader_mask, this->parent.NumPe(), MPI_INT, MPI_SUM, this->parent.Comm());
+#endif
 	int ind_leader = 0;
 	for (int i = 0; i < this->parent.NumPe(); i++) {
 		if (group_leader_mask[i])

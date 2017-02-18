@@ -70,7 +70,9 @@ public:
 #endif
 	}
 	int FortranComm() const {
+#ifdef __USE_MPI
 		return MPI_Comm_c2f(comm);
+#endif
 	}
 };
 
@@ -100,6 +102,9 @@ public:
 	int SlaveRootPe() const {
 		return slaves.RootPe();
 	}
+	int MasterRootPe() const {
+		return parent.RootPe();
+	}
 	MPI_Comm SlaveComm() const {
 		return slaves.Comm();
 	}
@@ -117,6 +122,9 @@ public:
 	}
 	int MyPe() const {
 		return parent.MyPe();
+	}
+	int WorldComm() const {
+		return parent.Comm();
 	}
 	int SayIamReady(int * message, int n) const;
 	int BcastToOtherSlaves(int * message, int n) const;
