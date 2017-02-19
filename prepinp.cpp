@@ -75,7 +75,7 @@ void RunPw( const Pos & p, const Cel & c, const CommGroup * Group) {
         int npool = 1;
         int ntg = 1;
         int nband = 1;
-        int ndiag = 1;
+        int ndiag = Group->NumPe();
         int retval = 0;
 
         ht_pw_drv( Group->FortranComm(), nimage, npots, npool, ntg, nband, ndiag, &retval, filename);
