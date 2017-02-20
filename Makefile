@@ -21,7 +21,7 @@ LIBOBJS = \
 ../iotk/src/libiotk.a
 
 # part 3: local HT library and progams
-OBJ=comm.o libpwscf-ht.o
+OBJ=comm.o libpwscf-ht.o pwinput.o
 
 all : ht-qe.x
 
