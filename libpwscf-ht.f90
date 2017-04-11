@@ -161,6 +161,7 @@ SUBROUTINE ht_environment_start( code )
     uname = 'out.' // trim(int_to_char( my_image_id )) // '_' // trim(int_to_char( me_image))
     OPEN ( unit = stdout, file = TRIM(uname),status='unknown')
     !
+    ! Need to modify "Modules/environment.f90" to compile and print these info
     CALL opening_message( code_version )
     CALL compilation_info ( )
 #if defined(__MPI)
@@ -169,4 +170,5 @@ SUBROUTINE ht_environment_start( code )
     CALL serial_info()
 #endif
 
+    !
 END SUBROUTINE
