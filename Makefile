@@ -1,11 +1,11 @@
-include ../make.sys
+include ../make.inc
 
 MODFLAGS= $(MOD_FLAG)../iotk/src $(MOD_FLAG)../FFTXlib $(MOD_FLAG)../LAXlib $(MOD_FLAG)../Modules $(MOD_FLAG).
 
 # FLAGS for c++ with IntelMPI when QE was compiled with Intel Fortran
 MPICXX=icpc
 MPICXXFLAGS=-DOMPI_SKIP_MPICXX=1 -O2 -Wall -g -fPIC -I../../src -I${INTELMPI_HOME}/include64
-MPILIBS=-openmp  -L${INTELMPI_HOME}/lib64  -lz  -lifcore -L$(I_MPI_ROOT)/lib64 -lmpi -lmpiif
+MPILIBS=-openmp  -L${INTELMPI_HOME}/lib64  -lz  -lifcore -L$(I_MPI_ROOT)/lib64 -lmpi -lmpifort
 
 # location of required libraries
 # part 1: hi-level libraries for building pw.x
@@ -21,7 +21,7 @@ LIBOBJS = \
 ../iotk/src/libiotk.a
 
 # part 3: local HT library and progams
-OBJ=comm.o libpwscf-ht.o
+OBJ=comm.o libpwscf-ht.o pwinput.o
 
 all : ht-qe.x
 

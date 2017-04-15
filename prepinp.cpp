@@ -226,6 +226,7 @@ int main(int argc, char ** argv) {
 
 	double time_end = cclock_();
 
+        World.Sync();
 	if( World.IamRoot() ) {
 		fprintf( stdout, "WALLTIME: %lf seconds", time_end - time_begin);
 	}
