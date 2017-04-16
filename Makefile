@@ -6,7 +6,7 @@ MPI_DIR=
 # Flags for Intel MPI and Intel compiler ((QE compiled same combination)
 MPICXX=icpc
 MPICXXFLAGS=-DOMPI_SKIP_MPICXX=1 -O2 -Wall -g -fPIC -I../../src -I${INTELMPI_HOME}/include64
-MPILIBS=-openmp  -L${INTELMPI_HOME}/lib64  -lz  -lifcore -L$(I_MPI_ROOT)/lib64 -lmpi -lmpiif
+MPILIBS=-openmp  -L${INTELMPI_HOME}/lib64  -lz  -lifcore -L$(I_MPI_ROOT)/lib64 -lmpi -lmpifort
 
 # Flags for Open MPI and GNU compiler (QE compiled same combination)
 #MPICXX=mpicxx

@@ -210,6 +210,7 @@ int main(int argc, char ** argv) {
 
 	MasterSlave MS(World, group_size);
 
+        World.Sync();
 	double time_begin = cclock_();
 
 	list<Pos> positions;
@@ -224,8 +225,9 @@ int main(int argc, char ** argv) {
 		SlaveTask( positions, cells, MS );
 	}
 
-	double time_end = cclock_();
 
+        World.Sync();
+	double time_end = cclock_();
 	if( World.IamRoot() ) {
 		fprintf( stdout, "WALLTIME: %lf seconds", time_end - time_begin);
 	}
