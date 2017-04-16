@@ -8,12 +8,21 @@ MasterSlave::MasterSlave(CommGroup parent_comm, int group_max_size) {
 	this->parent = parent_comm;
 
 	int role;
-	if (this->parent.IamRoot()) {
-		role = 0;
-	}
-	else {
-		role = (this->parent.MyPe() - 1) / this->group_max_size + 1;
-	}
+#if defined (__REVERSED_COMM)
+  if (this->parent.MyPe() == ( this->parent.NumPe() - 1) ) {
+    role = 0;
+  }
+  else {
+    role = (this->parent.MyPe() / this->group_max_size ) + 1;
+  }
+#else
+  if (this->parent.IamRoot()) {
+    role = 0;
+  }
+  else {
+    role = (this->parent.MyPe() - 1) / this->group_max_size + 1;
+  }
+#endif
 
 	MPI_Comm intra_comm;
 #ifdef __USE_MPI
